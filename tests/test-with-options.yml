@@ -1,0 +1,58 @@
+name: Test pg-restore with extra psql options
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install PostgreSQL client and server
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+
+      - name: Start PostgreSQL and create test database
+        run: |
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres psql -c "SELECT 1" > /dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i)"
+            sleep 1
+          done
+          # Create user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE testdb TO testuser;"
+
+      - name: Create backup SQL file
+        run: |
+          cat > /tmp/backup.sql <<'EOF'
+          CREATE TABLE IF NOT EXISTS options_table (
+            id SERIAL PRIMARY KEY,
+            label TEXT NOT NULL
+          );
+          INSERT INTO options_table (label) VALUES ('opt-test-1'), ('opt-test-2'), ('opt-test-3');
+          EOF
+
+      - name: Restore backup using action with extra options
+        id: restore
+        uses: .
+        with:
+          database_url: postgresql://testuser:testpass@localhost:5432/testdb
+          backup_file: /tmp/backup.sql
+          options: "--set ON_ERROR_STOP=1"
+
+      - name: Assert data was restored with options
+        run: |
+          COUNT=$(psql postgresql://testuser:testpass@localhost:5432/testdb -t -c "SELECT COUNT(*) FROM options_table;" | tr -d '[:space:]')
+          echo "Row count: $COUNT"
+          if [ "$COUNT" != "3" ]; then
+            echo "FAIL: expected 3 rows, got $COUNT"
+            exit 1
+          fi
+          echo "PASS"
