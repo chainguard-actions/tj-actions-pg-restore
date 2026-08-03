@@ -1,0 +1,56 @@
+name: Test basic pg-restore
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install and start PostgreSQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql postgresql-client
+          sudo service postgresql start
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready -q; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i)"
+            sleep 1
+          done
+          # Create test user and database
+          sudo -u postgres psql -c "CREATE USER testuser WITH PASSWORD 'testpass';"
+          sudo -u postgres psql -c "CREATE DATABASE testdb OWNER testuser;"
+          sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE testdb TO testuser;"
+
+      - name: Create backup SQL file
+        run: |
+          cat > /tmp/backup.sql <<'EOF'
+          CREATE TABLE IF NOT EXISTS test_table (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL
+          );
+          INSERT INTO test_table (name) VALUES ('hello'), ('world');
+          EOF
+
+      - name: Restore backup
+        id: restore
+        uses: .
+        with:
+          database_url: postgresql://testuser:testpass@localhost:5432/testdb
+          backup_file: /tmp/backup.sql
+
+      - name: Assert table and data exist
+        run: |
+          COUNT=$(psql postgresql://testuser:testpass@localhost:5432/testdb -t -c "SELECT COUNT(*) FROM test_table;" | tr -d '[:space:]')
+          echo "Row count: $COUNT"
+          if [ "$COUNT" != "2" ]; then
+            echo "FAIL: expected 2 rows, got $COUNT"
+            exit 1
+          fi
+          echo "PASS"

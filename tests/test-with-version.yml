@@ -1,0 +1,57 @@
+name: Test pg-restore with postgresql_version input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create a SQL backup file
+        run: |
+          cat > /tmp/backup_v15.sql <<'EOF'
+          CREATE TABLE IF NOT EXISTS versioned_table (
+            id SERIAL PRIMARY KEY,
+            value TEXT NOT NULL
+          );
+          INSERT INTO versioned_table (value) VALUES ('alpha'), ('beta'), ('gamma');
+          EOF
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U testuser && break
+            echo "Waiting for postgres... attempt $i"
+            sleep 2
+          done
+
+      - id: action
+        uses: .
+        with:
+          database_url: "postgresql://testuser:testpass@localhost:5432/testdb"
+          backup_file: "/tmp/backup_v15.sql"
+          postgresql_version: "15"
+
+      - name: Assert psql is available and data was restored
+        run: |
+          COUNT=$(PGPASSWORD=testpass psql -h localhost -p 5432 -U testuser -d testdb -t -c "SELECT COUNT(*) FROM versioned_table;" | tr -d ' ')
+          echo "Row count: $COUNT"
+          if [ "$COUNT" != "3" ]; then
+            echo "FAIL: expected 3 rows, got $COUNT"
+            exit 1
+          fi
+          echo "PASS: versioned_table exists with 3 rows"

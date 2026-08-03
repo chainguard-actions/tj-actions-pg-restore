@@ -1,0 +1,53 @@
+name: Postgres Restore from SQL Backup
+description: Restore from a Postgres Backup
+author: tj-actions
+inputs:
+  database_url:
+    description: 'Database URL'
+    required: true
+  backup_file:
+    description: 'Backup file name'
+    required: true
+  options:
+    description: 'Extra options to pass directly to psql'
+    required: false
+  postgresql_version:
+    description: 'Version of PostgreSQL. e.g 15'
+    required: false
+runs:
+  using: 'composite'
+  steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
+    - name: Setup PostgreSQL
+      uses: tj-actions/install-postgresql@a889ed6c6fa05022333ed4101295bb1d604f97a8 # v3
+      if: inputs.postgresql_version != ''
+      with:
+        postgresql-version: ${{ inputs.postgresql_version }}
+    - env:
+        INPUT_OPTIONS: ${{ inputs.options }}
+        INPUT_DATABASE_URL: ${{ inputs.database_url }}
+        INPUT_BACKUP_FILE: ${{ inputs.backup_file }}
+      run: |
+        psql --version
+        read -ra opts <<< "$INPUT_OPTIONS"
+        psql "${opts[@]}" -d "$INPUT_DATABASE_URL" < "$INPUT_BACKUP_FILE"
+      shell: bash
+branding:
+  icon: hard-drive
+  color: white
