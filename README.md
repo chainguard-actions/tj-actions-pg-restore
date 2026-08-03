@@ -9,6 +9,7 @@ Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at
 | Version | Tag | Upstream commit |
 |---------|-----|-----------------|
 | v6 | [`v6`](https://github.com/chainguard-actions/tj-actions-pg-restore/tree/v6) | [`7ac93da`](https://github.com/tj-actions/pg-restore/commit/7ac93da67774277a23b67c31b415760f5bee7441) |
+| v6.0 | [`v6.0`](https://github.com/chainguard-actions/tj-actions-pg-restore/tree/v6.0) | [`7ac93da`](https://github.com/tj-actions/pg-restore/commit/7ac93da67774277a23b67c31b415760f5bee7441) |
 
 ## Privacy
 
