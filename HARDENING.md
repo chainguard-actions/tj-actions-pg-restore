@@ -16,40 +16,69 @@ Action **tj-actions--pg-restore/v6** was hardened automatically. 6 finding(s) we
 
 ### script-injection (severity: high)
 
-The run: block in action.yml directly interpolates untrusted inputs into a shell command string via ${{ inputs.options }}, ${{ inputs.database_url }}, and ${{ inputs.backup_file }}. An attacker controlling these inputs (e.g. via a calling workflow) can inject arbitrary shell commands. Sub-rule (a): direct expression interpolation inside a run: block. Offending line: `psql ${{ inputs.options }} -d "${{ inputs.database_url }}" < "${{ inputs.backup_file }}"`
+Sub-rule (a): action.yml line 27 directly interpolates three untrusted inputs inside a run: shell command — `${{ inputs.options }}` (also unquoted, violating sub-rule (b)), `${{ inputs.database_url }}`, and `${{ inputs.backup_file }}`. An attacker who controls these inputs (e.g. via workflow_dispatch or a calling workflow) can inject arbitrary shell commands. The offending line is: `psql ${{ inputs.options }} -d "${{ inputs.database_url }}" < "${{ inputs.backup_file }}"`
+
+Locations:
+
+- `action.yml:27`
+
+### unpinned-uses (severity: high)
+
+Multiple uses: references are pinned to mutable tags or version strings instead of full 40-character commit SHAs, making the action vulnerable to supply-chain attacks if those tags are moved or hijacked.
+
+action.yml:
+  - tj-actions/install-postgresql@v3 (line 22)
+
+.github/workflows/codacy-analysis.yml:
+  - actions/checkout@v4 (line 30)
+  - codacy/codacy-analysis-cli-action@v4.3.0 (line 34)
+  - github/codeql-action/upload-sarif@v3 (line 48)
+
+.github/workflows/rebase.yml:
+  - actions/checkout@v4 (line 10)
+  - cirrus-actions/rebase@1.8 (line 14)
+
+.github/workflows/sync-release-version.yml:
+  - actions/checkout@v4 (line 10)
+  - tj-actions/release-tagger@v4 (line 12)
+  - tj-actions/sync-release-version@v13 (line 13)
+  - tj-actions/git-cliff@v1 (line 18)
+  - peter-evans/create-pull-request@v5.0.2 (line 20)
+
+.github/workflows/test.yml:
+  - actions/checkout@v4 (line 37, line 53)
+
+.github/workflows/update-readme.yml:
+  - actions/checkout@v4.1.1 (line 11)
+  - tj-actions/auto-doc@v3.4.1 (line 15)
+  - tj-actions/remark@v3 (line 18)
+  - tj-actions/verify-changed-files@v17 (line 21)
+  - peter-evans/create-pull-request@v5.0.2 (line 33)
 
 Locations:
 
 - `action.yml:22`
-
-### unpinned-uses (severity: high)
-
-Multiple uses: references across action.yml and workflow files use mutable tags instead of full 40-character SHA commit hashes, making the action vulnerable to supply-chain attacks if the referenced tag is moved or overwritten. Failing references include: action.yml: tj-actions/install-postgresql@v3; codacy-analysis.yml: actions/checkout@v4, codacy/codacy-analysis-cli-action@v4.3.0, github/codeql-action/upload-sarif@v3; rebase.yml: actions/checkout@v4, cirrus-actions/rebase@1.8; sync-release-version.yml: actions/checkout@v4, tj-actions/release-tagger@v4, tj-actions/sync-release-version@v13, tj-actions/git-cliff@v1, peter-evans/create-pull-request@v5.0.2; test.yml: actions/checkout@v4 (×2); update-readme.yml: actions/checkout@v4.1.1, tj-actions/auto-doc@v3.4.1, tj-actions/remark@v3, tj-actions/verify-changed-files@v17, peter-evans/create-pull-request@v5.0.2.
-
-Locations:
-
-- `action.yml:19`
 - `.github/workflows/codacy-analysis.yml:30`
-- `.github/workflows/codacy-analysis.yml:35`
-- `.github/workflows/codacy-analysis.yml:51`
+- `.github/workflows/codacy-analysis.yml:34`
+- `.github/workflows/codacy-analysis.yml:48`
 - `.github/workflows/rebase.yml:10`
 - `.github/workflows/rebase.yml:14`
-- `.github/workflows/sync-release-version.yml:9`
+- `.github/workflows/sync-release-version.yml:10`
 - `.github/workflows/sync-release-version.yml:12`
-- `.github/workflows/sync-release-version.yml:14`
+- `.github/workflows/sync-release-version.yml:13`
 - `.github/workflows/sync-release-version.yml:18`
 - `.github/workflows/sync-release-version.yml:20`
-- `.github/workflows/test.yml:27`
-- `.github/workflows/test.yml:51`
-- `.github/workflows/update-readme.yml:10`
-- `.github/workflows/update-readme.yml:14`
-- `.github/workflows/update-readme.yml:17`
-- `.github/workflows/update-readme.yml:20`
-- `.github/workflows/update-readme.yml:32`
+- `.github/workflows/test.yml:37`
+- `.github/workflows/test.yml:53`
+- `.github/workflows/update-readme.yml:11`
+- `.github/workflows/update-readme.yml:15`
+- `.github/workflows/update-readme.yml:18`
+- `.github/workflows/update-readme.yml:21`
+- `.github/workflows/update-readme.yml:33`
 
 ### missing-permissions (severity: medium)
 
-None of the five workflow files define a top-level permissions: key, and no individual job within any of these files defines a job-level permissions: key. Without explicit permissions, workflows run with the default (potentially write) token permissions, violating the principle of least privilege.
+None of the five workflow files define a top-level permissions: key, and no job within them defines a job-level permissions: key either. Without explicit permissions, workflows inherit the default repository permissions (which may be write-all), granting jobs more access than they need. Each workflow should declare minimal required permissions (e.g. `permissions: contents: read`).
 
 Locations:
 
@@ -93,9 +122,9 @@ Locations:
 
 Fixed all findings across action.yml and 5 workflow files:
 
-1. script-injection / static-inline-injection (action.yml line 28): Moved ${{ inputs.options }}, ${{ inputs.database_url }}, and ${{ inputs.backup_file }} into an env: block as INPUT_OPTIONS, INPUT_DATABASE_URL, INPUT_BACKUP_FILE. Since 'options' is a list of psql flags, used 'read -ra opts <<< "$INPUT_OPTIONS"' to safely split and expand it as an array.
+1. script-injection/static-inline-injection (action.yml): Moved inputs.options, inputs.database_url, and inputs.backup_file out of the run: shell string into the step's env: block. The options input (a list of psql flags) is tokenized safely with xargs into a bash array to prevent both injection and argument-boundary issues.
 
 2. unpinned-uses: Pinned all 13 action references across action.yml and all 5 workflow files to their full 40-character commit SHAs, preserving the original tag in a trailing comment.
 
-3. missing-permissions: Added top-level permissions blocks to all 5 workflow files with minimal required permissions: codacy-analysis.yml (contents: read, security-events: write), rebase.yml (contents: write, pull-requests: read), sync-release-version.yml (contents: write, pull-requests: write), test.yml (contents: read), update-readme.yml (contents: write, pull-requests: write).
+3. missing-permissions: Added top-level permissions: blocks with minimal required permissions to all 5 workflow files (codacy-analysis.yml: contents:read + security-events:write; rebase.yml: contents:write + pull-requests:read; sync-release-version.yml: contents:write + pull-requests:write; test.yml: contents:read; update-readme.yml: contents:write + pull-requests:write).
 

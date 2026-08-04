@@ -45,7 +45,11 @@ runs:
         INPUT_BACKUP_FILE: ${{ inputs.backup_file }}
       run: |
         psql --version
-        read -ra opts <<< "$INPUT_OPTIONS"
+        opts=()
+        if [ -n "$INPUT_OPTIONS" ]; then
+          while IFS= read -r -d '' t; do opts+=("$t"); done \
+            < <(printf '%s' "$INPUT_OPTIONS" | xargs printf '%s\0')
+        fi
         psql "${opts[@]}" -d "$INPUT_DATABASE_URL" < "$INPUT_BACKUP_FILE"
       shell: bash
 branding:
