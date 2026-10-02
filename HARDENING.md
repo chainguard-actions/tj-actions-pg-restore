@@ -10,83 +10,25 @@
 
 **Harden Agent Version:** `2`
 
-Action **tj-actions--pg-restore/v6** was hardened automatically. 6 finding(s) were identified and resolved across 1 iteration(s).
+Action **tj-actions--pg-restore/v6** was hardened automatically. 5 finding(s) were identified and resolved across 1 iteration(s).
 
 ## Findings Fixed
 
 ### script-injection (severity: high)
 
-Sub-rule (a): action.yml line 27 directly interpolates three untrusted inputs inside a run: shell command — `${{ inputs.options }}` (also unquoted, violating sub-rule (b)), `${{ inputs.database_url }}`, and `${{ inputs.backup_file }}`. An attacker who controls these inputs (e.g. via workflow_dispatch or a calling workflow) can inject arbitrary shell commands. The offending line is: `psql ${{ inputs.options }} -d "${{ inputs.database_url }}" < "${{ inputs.backup_file }}"`
+The run: block directly interpolates GitHub Actions expressions into shell commands (sub-rule a). Specifically, `${{ inputs.options }}` is interpolated completely unquoted (also a sub-rule b violation), and `${{ inputs.database_url }}` and `${{ inputs.backup_file }}` are interpolated inside double-quoted strings. Any caller of this composite action can supply values containing shell metacharacters (`;`, `|`, `$(...)`, etc.) to achieve arbitrary command execution. The offending line is: `psql ${{ inputs.options }} -d "${{ inputs.database_url }}" < "${{ inputs.backup_file }}"`
 
 Locations:
 
-- `action.yml:27`
+- `action.yml:24`
 
 ### unpinned-uses (severity: high)
 
-Multiple uses: references are pinned to mutable tags or version strings instead of full 40-character commit SHAs, making the action vulnerable to supply-chain attacks if those tags are moved or hijacked.
-
-action.yml:
-  - tj-actions/install-postgresql@v3 (line 22)
-
-.github/workflows/codacy-analysis.yml:
-  - actions/checkout@v4 (line 30)
-  - codacy/codacy-analysis-cli-action@v4.3.0 (line 34)
-  - github/codeql-action/upload-sarif@v3 (line 48)
-
-.github/workflows/rebase.yml:
-  - actions/checkout@v4 (line 10)
-  - cirrus-actions/rebase@1.8 (line 14)
-
-.github/workflows/sync-release-version.yml:
-  - actions/checkout@v4 (line 10)
-  - tj-actions/release-tagger@v4 (line 12)
-  - tj-actions/sync-release-version@v13 (line 13)
-  - tj-actions/git-cliff@v1 (line 18)
-  - peter-evans/create-pull-request@v5.0.2 (line 20)
-
-.github/workflows/test.yml:
-  - actions/checkout@v4 (line 37, line 53)
-
-.github/workflows/update-readme.yml:
-  - actions/checkout@v4.1.1 (line 11)
-  - tj-actions/auto-doc@v3.4.1 (line 15)
-  - tj-actions/remark@v3 (line 18)
-  - tj-actions/verify-changed-files@v17 (line 21)
-  - peter-evans/create-pull-request@v5.0.2 (line 33)
+The action uses `tj-actions/install-postgresql@v3`, which is pinned to a mutable version tag rather than an immutable 40-character commit SHA. This exposes the action to supply-chain attacks if the tag is moved to point to malicious code. It should be pinned to a full SHA, e.g. `tj-actions/install-postgresql@<40-char-sha> # v3`.
 
 Locations:
 
 - `action.yml:22`
-- `.github/workflows/codacy-analysis.yml:30`
-- `.github/workflows/codacy-analysis.yml:34`
-- `.github/workflows/codacy-analysis.yml:48`
-- `.github/workflows/rebase.yml:10`
-- `.github/workflows/rebase.yml:14`
-- `.github/workflows/sync-release-version.yml:10`
-- `.github/workflows/sync-release-version.yml:12`
-- `.github/workflows/sync-release-version.yml:13`
-- `.github/workflows/sync-release-version.yml:18`
-- `.github/workflows/sync-release-version.yml:20`
-- `.github/workflows/test.yml:37`
-- `.github/workflows/test.yml:53`
-- `.github/workflows/update-readme.yml:11`
-- `.github/workflows/update-readme.yml:15`
-- `.github/workflows/update-readme.yml:18`
-- `.github/workflows/update-readme.yml:21`
-- `.github/workflows/update-readme.yml:33`
-
-### missing-permissions (severity: medium)
-
-None of the five workflow files define a top-level permissions: key, and no job within them defines a job-level permissions: key either. Without explicit permissions, workflows inherit the default repository permissions (which may be write-all), granting jobs more access than they need. Each workflow should declare minimal required permissions (e.g. `permissions: contents: read`).
-
-Locations:
-
-- `.github/workflows/codacy-analysis.yml:1`
-- `.github/workflows/rebase.yml:1`
-- `.github/workflows/sync-release-version.yml:1`
-- `.github/workflows/test.yml:1`
-- `.github/workflows/update-readme.yml:1`
 
 ### static-inline-injection (severity: high)
 
@@ -116,15 +58,9 @@ Locations:
 
 ### Iteration 1
 
-**Fixes applied:** script-injection, static-inline-injection, unpinned-uses, missing-permissions
+**Fixes applied:** unpinned-uses, script-injection, static-inline-injection
 
 **Notes:**
 
-Fixed all findings across action.yml and 5 workflow files:
-
-1. script-injection/static-inline-injection (action.yml): Moved inputs.options, inputs.database_url, and inputs.backup_file out of the run: shell string into the step's env: block. The options input (a list of psql flags) is tokenized safely with xargs into a bash array to prevent both injection and argument-boundary issues.
-
-2. unpinned-uses: Pinned all 13 action references across action.yml and all 5 workflow files to their full 40-character commit SHAs, preserving the original tag in a trailing comment.
-
-3. missing-permissions: Added top-level permissions: blocks with minimal required permissions to all 5 workflow files (codacy-analysis.yml: contents:read + security-events:write; rebase.yml: contents:write + pull-requests:read; sync-release-version.yml: contents:write + pull-requests:write; test.yml: contents:read; update-readme.yml: contents:write + pull-requests:write).
+1. Pinned tj-actions/install-postgresql@v3 to full commit SHA a889ed6c6fa05022333ed4101295bb1d604f97a8 (kept # v3 comment for readability). 2. Moved all three ${{ inputs.* }} expressions out of the run: block into an env: block (INPUT_DATABASE_URL, INPUT_BACKUP_FILE, INPUT_OPTIONS). 3. For inputs.options (a list of extra psql flags), used the xargs-based tokenization pattern with a bash array to safely split the value into separate arguments while preserving quoting. 4. inputs.database_url and inputs.backup_file are single values referenced as double-quoted "$INPUT_DATABASE_URL" and "$INPUT_BACKUP_FILE" in the shell script.
 
